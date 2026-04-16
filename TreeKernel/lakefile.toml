@@ -1,0 +1,14 @@
+name = "TreeKernel"
+version = "0.1.0"
+defaultTargets = ["standardkernel"]
+
+[[lean_lib]]
+name = "TreeKernel"
+
+[[require]]
+name = "GenericKernel"
+path = "../GenericKernel"
+
+[[lean_exe]]
+name = "standardkernel"
+root = "Main"

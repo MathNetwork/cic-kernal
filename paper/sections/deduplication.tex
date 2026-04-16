@@ -1,0 +1,74 @@
+% !TEX root = ../main.tex
+\section{Deduplication Data}\label{sec:deduplication}\label{app:dedup}
+
+After type-checking, the Shatter function decomposes each declaration's type and value expressions into nerves.  The file \texttt{Verify/Diagnostics.lean} measures tree node counts (with duplicates) and nerve counts (after deduplication) for all 15 declarations.
+
+\subsection{Per-declaration table}
+
+Table~\ref{tab:dedup} reports the data from an actual run of the diagnostic harness.  ``Tree nodes'' counts every node in the expression tree, including duplicates.  ``Nerves'' counts the number of distinct nerves after Shatter, across both type and value expressions.  Each declaration is shattered independently (starting from an empty net), so the per-declaration nerve counts do not benefit from cross-declaration deduplication.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Declaration & Tree nodes & Nerves & Dedup rate \\
+\midrule
+Nat & 1 & 1 & 0\% \\
+Nat.zero & 1 & 1 & 0\% \\
+Nat.succ & 3 & 2 & 33\% \\
+Nat.rec & 17 & 8 & 53\% \\
+Nat.add & 30 & 14 & 53\% \\
+Eq & 7 & 5 & 29\% \\
+Eq.refl & 11 & 7 & 36\% \\
+Eq.rec & 25 & 12 & 52\% \\
+Nat.add\_zero & 96 & 44 & 54\% \\
+Nat.add\_succ & 18 & 11 & 39\% \\
+zero\_add & 96 & 42 & 56\% \\
+succ\_add & 142 & 66 & 53\% \\
+Eq.symm & 38 & 19 & 50\% \\
+Eq.trans & 54 & 24 & 56\% \\
+Nat.add\_comm & 226 & 91 & 60\% \\
+\midrule
+\textbf{Total (cumulative)} & \textbf{825} & \textbf{280} & \textbf{66\%} \\
+\bottomrule
+\end{tabular}
+\caption{Tree node counts vs.\ nerve counts for all 15 declarations.  The cumulative total uses a single shared nerve store, so cross-declaration deduplication increases the overall rate to 66\%.}
+\label{tab:dedup}
+\end{table}
+
+The cumulative deduplication rate (66\%) exceeds any individual declaration's rate because declarations share sub-expressions across their types and values.  The expression \texttt{const Nat []}, for instance, appears in every declaration's type but is stored as a single nerve.
+
+\subsection{Nat.add\_comm in detail}
+
+The \texttt{Nat.add\_comm} proof term is the largest expression in the environment: 226 tree nodes compressing to 91 nerves (60\% deduplication when shattered alone, or contributing to the 66\% cumulative rate when sharing a store with the other 14 declarations).
+
+The proof proceeds by induction on the first argument, using \texttt{Eq.trans} to chain together \texttt{succ\_add}, a congruence step (applying \texttt{Eq.rec} to lift the induction hypothesis through \texttt{Nat.succ}), and the symmetry of \texttt{add\_succ}.  This structure generates heavy repetition of common sub-expressions.
+
+The \texttt{Const} frequency analysis in the proof term (from \texttt{Diagnostics.lean}) shows:
+
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Const reference & Occurrences \\
+\midrule
+Nat.add & 19 \\
+Nat.succ & 11 \\
+Nat & 10 \\
+Eq & 8 \\
+Eq.rec & 4 \\
+Eq.refl & 4 \\
+Eq.trans & 3 \\
+Nat.zero & 3 \\
+Eq.symm & 2 \\
+succ\_add & 1 \\
+add\_succ & 1 \\
+Nat.add\_zero & 1 \\
+zero\_add & 1 \\
+Nat.rec & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each of the 19 occurrences of \texttt{Nat.add} in the tree is a separate node, but all 19 share the same hash and reduce to a single nerve in the store.  The deduplication savings come not just from \texttt{Const} nodes but also from repeated compound sub-expressions: the pattern \texttt{app (app (const Nat.add []) X) Y} recurs with the same \texttt{X} and \texttt{Y} in multiple branches of the induction.
+
+Cached content hashes also enable O(1) definitional equality for store-resident expressions.  Lean~4's production kernel already achieves the same via \texttt{mkData(mixHash ...)} and hash consing (\texttt{ShareCommon.shareCommon'}).  Benchmark data reproducing this behavior in our simplified kernel appear in Appendix~\ref{app:codebase}.

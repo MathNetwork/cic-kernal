@@ -1,0 +1,38 @@
+% !TEX root = main.tex
+\documentclass[11pt]{article}
+\usepackage{preamble}
+
+\title{CIC Type-Checking as Growing a Content-Addressed Hypergraph}
+\author{
+  Xinze Li\thanks{Department of Mathematics, University of Toronto. \texttt{lixinze@math.toronto.edu}}
+}
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Expressions of the Calculus of Inductive Constructions carry a natural directed hypergraph structure in the sense of Barkeshli, Douglas, and Freedman.  We show that CIC type-checking is equivalent to growing a content-addressed directed hypergraph, and verify this against a traditional tree-based kernel on 15 declarations from \texttt{Nat} through \texttt{Nat.add\_comm}.
+\end{abstract}
+
+\vspace{2pt}
+{\small\noindent Repository: \url{https://github.com/MathNetwork/cic-kernal}. Apache~2.0.}
+
+{\small\tableofcontents}
+\newpage
+
+\input{sections/introduction}
+\input{sections/kernel}
+\input{sections/equivalence}
+\input{sections/conclusion}
+
+\addcontentsline{toc}{section}{References}
+\bibliographystyle{alpha}
+\bibliography{references}
+
+\appendix
+\input{sections/appendix}
+
+\end{document}
+ 

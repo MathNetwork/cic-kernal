@@ -1,0 +1,45 @@
+% !TEX root = ../main.tex
+
+\section{Gaps discovered during formalization}\label{app:gaps}
+
+Formalizing the AstroNet axioms and depth filtration in Lean~4 with Mathlib uncovered four issues, all corrected in the Theory module:
+\begin{enumerate}
+  \item[(a)] \emph{Atom self-loop in cycle definition.} Atoms with $\mathrm{ref} = (\mathrm{id}(e))$ trivially satisfy a na\"ive cycle predicate. The formalization required a structured path definition (\texttt{AstroPath}) with a distinct-node condition.
+  \item[(b)] \emph{Missing no-self-reference axiom.} AstroNerves with $\omega(e) > 0$ and $\mathrm{id}(e) \in \mathrm{ref}(e)$ break the cycle characterization. Added as the fifth axiom (Definition~\ref{def:well-formed}, condition~4).
+  \item[(c)] \emph{Redundant non-emptiness axiom.} $|\mathrm{ref}(e)| \geq 1$ follows from self-reference and width. Removed from the axiom list and derived as a lemma (\texttt{AstroNet.nonEmpty}).
+  \item[(d)] \emph{Stabilization theorem strengthening.} The original biconditional (``unstaged if and only if on a cycle'') is false as stated; corrected to two separate implications: cycle nerves are unstaged (\texttt{depthFilt\_not\_inCycle}), and unstaged nerves reach a cycle (\texttt{unstaged\_reaches\_cycle}).
+\end{enumerate}
+
+\section{Codebase and benchmark data}\label{app:codebase}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lrl}
+  \toprule
+  Module & Lines & Contents \\
+  \midrule
+  GenericKernel & 397 & Parameterized CIC kernel \\
+  TreeKernel & 50 & Key = String aliases \\
+  NerveKernel & 563 & Hash, AstroNerve, AstroNet, ExprWithHash, Shatter \\
+  Theory & 534 & AstroNet axioms, depth filtration, cycle analysis \\
+  Examples & ${\sim}800$ & StoreEquivalence, Benchmark, Diagnostics, exports \\
+  \bottomrule
+\end{tabular}
+\caption{Codebase summary.}
+\label{tab:codebase}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Depth & GenericKernel.defEq & defEqWithHash & Speedup \\
+\midrule
+100 & 423\,ms & 0.32\,ms & $1{,}322\times$ \\
+1{,}000 & 4{,}243\,ms & 0.37\,ms & $11{,}467\times$ \\
+10{,}000 & 43{,}306\,ms & 0.30\,ms & $144{,}353\times$ \\
+\bottomrule
+\end{tabular}
+\caption{Definitional equality benchmark (1000 iterations, two distinct allocations to defeat pointer equality).  GenericKernel.defEq is O(n) in expression depth.  defEqWithHash is O(1) via cached hash comparison.  Lean~4's production kernel achieves the same O(1) behavior via \texttt{mkData(mixHash ...)} and hash consing (\texttt{ShareCommon.shareCommon'}).}
+\label{tab:benchmark}
+\end{table}

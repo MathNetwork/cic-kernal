@@ -1,0 +1,11 @@
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}The Hypergraph Kernel}{2}{section.2}%
+\contentsline {section}{\numberline {3}Tree Kernel vs Hypergraph Kernel}{3}{section.3}%
+\contentsline {paragraph}{check.}{3}{section*.3}%
+\contentsline {paragraph}{subst.}{4}{section*.4}%
+\contentsline {paragraph}{whnf.}{4}{section*.5}%
+\contentsline {paragraph}{infer.}{4}{section*.6}%
+\contentsline {paragraph}{defEq.}{5}{section*.7}%
+\contentsline {section}{\numberline {4}Conclusion and Open Questions}{5}{section.4}%
+\contentsline {section}{References}{6}{section.4}%
+\contentsline {section}{\numberline {A}Verification details and proofs}{7}{appendix.A}%

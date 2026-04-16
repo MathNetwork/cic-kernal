@@ -1,0 +1,95 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{preamble}[2026/03/31 Astrolabe tool paper preamble]
+
+% ---------- encoding & fonts ----------
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{lmodern}
+
+% ---------- mathematics ----------
+\RequirePackage{amsmath,amssymb,amsthm}
+
+% ---------- layout ----------
+\RequirePackage{geometry}
+\geometry{margin=1in}
+\RequirePackage{indentfirst}
+\emergencystretch=2em
+
+% ---------- hyperlinks ----------
+\RequirePackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=green!50!black,
+  urlcolor=blue!70!black
+}
+
+% ---------- colors ----------
+\RequirePackage{xcolor}
+
+% ---------- code ----------
+\RequirePackage{listings}
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  framesep=2mm,
+  backgroundcolor=\color{gray!5},
+  columns=fullflexible,
+  keywordstyle=\color{blue!60!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+}
+
+% ---------- tables ----------
+\RequirePackage{array}
+\RequirePackage{booktabs}
+\RequirePackage{multirow}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ---------- graphics & floats ----------
+\RequirePackage{graphicx}
+\RequirePackage{float}
+\RequirePackage{subcaption}
+
+% ---------- diagrams ----------
+\RequirePackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric}
+\RequirePackage{tikz-cd}
+
+% ---------- finding boxes ----------
+\newsavebox{\findingbox}
+\newenvironment{finding}[1][]{%
+  \begin{lrbox}{\findingbox}%
+  \begin{minipage}{\dimexpr\linewidth-12pt}%
+  \ifx&#1&\else{\bfseries #1}\par\smallskip\fi
+}{%
+  \end{minipage}%
+  \end{lrbox}%
+  \par\medskip\noindent
+  \fcolorbox{blue!75!black}{blue!5!white}{%
+    \usebox{\findingbox}%
+  }%
+  \par\medskip
+}
+
+% ---------- theorem environments ----------
+\newtheorem{definition}{Definition}[section]
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{corollary}[definition]{Corollary}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{example}[definition]{Example}
+\newtheorem{remark}[definition]{Remark}
+
+% ---------- gap markers (remove before arXiv submission) ----------
+\newcommand{\gapred}[1]{\textcolor{red}{[GAP-RED: #1]}}
+\newcommand{\gapblue}[1]{\textcolor{blue}{[GAP-BLUE: #1]}}
+\newcommand{\gapgray}[1]{\textcolor{gray}{[FUTURE: #1]}}
+% legacy alias
+\newcommand{\pending}[1]{\textcolor{red}{#1}}
+\newcommand{\pendingproof}{\gapred{Proof pending.}}
+
+% ---------- Lean source link ----------
+\definecolor{leancolor}{HTML}{2aa198}
+\newcommand{\leanlink}[1]{\textsuperscript{\href{#1}{\textcolor{leancolor}{\checkmark\,lean}}}}

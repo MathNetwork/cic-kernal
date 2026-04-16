@@ -1,0 +1,18 @@
+name = "AstroCore"
+version = "0.1.0"
+
+[[require]]
+name = "TreeKernel"
+path = "./TreeKernel"
+
+[[require]]
+name = "HypergraphKernel"
+path = "./HypergraphKernel"
+
+[[require]]
+name = "Examples"
+path = "./Examples"
+
+[[require]]
+name = "Theory"
+path = "./Theory"

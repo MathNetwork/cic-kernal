@@ -1,0 +1,15 @@
+% !TEX root = ../main.tex
+\section{Conclusion and Open Questions}\label{sec:conclusion}
+
+CIC expressions form a BDF directed hypergraph, with width determined by constructor arity and depth by expression nesting.  Content-addressing adds automatic identification of identical sub-expressions: 825 tree nodes compress to 280 nerves across 15 declarations (66\% deduplication), and cached hashes reduce definitional equality to O(1) for store-resident expressions.  Store Equivalence (that GenericKernel accepts or rejects the same declarations regardless of key type) is verified concretely on \texttt{String} and \texttt{UInt64} instantiations via \texttt{native\_decide}.
+
+Several questions remain open.  Can Store Equivalence be proved in general, for all well-typed environments and all key types satisfying the typeclass constraints, rather than on 15 concrete declarations?  The functoriality of \texttt{mapExpr} (identity and composition laws) provides the necessary infrastructure, but the proof would additionally require showing that \texttt{check} commutes with key translation.
+
+Does depth filtration on CIC expressions produce nontrivial persistent homology?  The filtration $A^{(0)} \subseteq A^{(1)} \subseteq \cdots$ stabilizes on any finite AstroNet, but the topological content of this filtration (Betti numbers, persistence diagrams) has not been investigated.  A Mathlib-scale nerve store (300K+ declarations) would provide a meaningful test case.
+
+How does the nerve hypergraph relate to the dependency network of a large proof library?  The dependency graph records which declarations a theorem uses; the nerve hypergraph records sub-expression sharing at the term level.  These two structures are complementary, and their interaction (for instance, whether sub-expression deduplication rates correlate with dependency depth) is unexplored.
+
+Does the BDF structure on CIC expressions have consequences for proof search or library refactoring?  Highly-referenced nerves (those with many incoming edges in the hypergraph) identify the most reused sub-expressions, which may guide lemma extraction or suggest opportunities for automation.
+
+Metric structure (Jaccard distance on nerve id-sets), algebraic operations (quotient, merge, restriction), and categorical embeddings are natural directions for future work.  An independent Rust CIC kernel inside SP1 zkVM has been used to produce cryptographic receipts certifying correct type-checking in a separate project.
+

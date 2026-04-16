@@ -1,0 +1,32 @@
+\begin{thebibliography}{ABFM26}
+
+\bibitem[ABFM26]{Aksenov2026}
+Vitaly Aksenov, Elena Bodnia, Michael~H. Freedman, and Michael Mulligan.
+\newblock Compression is all you need: Modeling mathematics.
+\newblock {\em arXiv preprint arXiv:2603.20396}, 2026.
+
+\bibitem[{Arg}23]{Arg23}
+{Argument Computer}.
+\newblock Yatima: A zero-knowledge {Lean 4} compiler and kernel, 2023.
+\newblock Project discontinued.
+
+\bibitem[BDF26]{BDF2026}
+Maissam Barkeshli, Michael~R. Douglas, and Michael~H. Freedman.
+\newblock Artificial intelligence and the structure of mathematics.
+\newblock {\em arXiv preprint arXiv:2604.06107}, 2026.
+
+\bibitem[Car24]{lean4lean}
+Mario Carneiro.
+\newblock lean4lean: Lean 4 kernel reimplementation in lean 4, 2024.
+
+\bibitem[LOB24]{zkPi}
+Evan Laufer, Alex Ozdemir, and Dan Boneh.
+\newblock zkpi: Proving lean theorems in zero-knowledge.
+\newblock In {\em ACM CCS}, 2024.
+
+\bibitem[LPSS26]{LPSS26b}
+Xinze Li, Nanyun Peng, Patrick Shafto, and Simone Severini.
+\newblock The multinetwork of {Mathlib}: Structure, data, and analysis.
+\newblock In preparation, 2026.
+
+\end{thebibliography}

@@ -1,0 +1,170 @@
+% !TEX root = ../main.tex
+\section{Content-Addressing and Nerves}\label{sec:nerves}
+
+HypergraphKernel extends GenericKernel at \texttt{Key = UInt64} with three components: a Merkle-style content hash, a nerve-based storage format, and a decomposition function that converts expression trees into sets of nerves.  This section describes each component as implemented in the source.
+
+\subsection{Merkle-style hashing}\label{sec:hash}
+
+The function \texttt{hashExpr} computes a content hash for any \texttt{Expr UInt64}.  Each expression constructor is serialized into a canonical record string, and the hash is \texttt{String.hash} of that record.  \texttt{String.hash} is Lean's built-in hash function producing a \texttt{UInt64}; it is \emph{not} a cryptographic hash like SHA-256.  Collision resistance holds in practice for the small expression sets in AstroCore (hundreds of nerves) but is not guaranteed in general.
+
+Leaf nodes serialize their content directly.  For example, \texttt{bvar 3} produces the record string \texttt{"BVar(3)"}, and \texttt{sort (succ zero)} produces \texttt{"Sort(Ls(L0))"}.  A \texttt{const} node includes its key and level list: \texttt{"Const(42, [L0])"}.
+
+Compound nodes serialize the \emph{hashes} of their children, not the children themselves.  This is the Merkle property: \texttt{app f a} first computes \texttt{hashExpr f} and \texttt{hashExpr a}, yielding hashes $h_f$ and $h_a$, then produces the record string \texttt{"App($h_f$, $h_a$)"}.  The hash of the compound node is \texttt{String.hash} of this record.  Structurally identical sub-expressions produce identical hashes, regardless of where they appear in the tree.
+
+\begin{lstlisting}[language={},morekeywords={partial,def,match,with,let}]
+partial def hashExpr (e : Expr) : UInt64 * String :=
+  match e with
+  | .bvar n =>
+    let record := s!"BVar({n})"
+    (record.hash, record)
+  | .app f a =>
+    let (fh, _) := hashExpr f
+    let (ah, _) := hashExpr a
+    let record := s!"App({fh}, {ah})"
+    (record.hash, record)
+  ...
+\end{lstlisting}
+
+\subsection{AstroNerve and AstroNet}\label{sec:astronerve}
+
+An \texttt{AstroNerve} is a triple:
+
+\begin{lstlisting}[language={},morekeywords={structure,where,deriving}]
+structure AstroNerve where
+  hash   : UInt64       -- H(record)
+  ref    : List UInt64  -- hashes of referenced nerves
+  record : String       -- serialized content
+\end{lstlisting}
+
+The \texttt{hash} field is the content hash of the \texttt{record} field, satisfying $\mathrm{hash} = H(\mathrm{record})$.  The \texttt{ref} field lists the hashes of all nerves that this nerve depends on.  For atoms, $\mathrm{ref} = [\mathrm{hash}]$ (self-reference).  For compound nodes, $\mathrm{ref}$ contains the hashes of the children.  The \textbf{width} of a nerve is $|\mathrm{ref}| - 1$.
+
+An \texttt{AstroNet} is the combined storage unit:
+
+\begin{lstlisting}[language={},morekeywords={structure,where,deriving}]
+structure AstroNet where
+  nerves : HashMap UInt64 AstroNerve
+  decls  : HashMap UInt64 Decl
+\end{lstlisting}
+
+It holds both the nerve store (mapping hashes to nerves) and the declaration store (mapping hashes to declarations).  The declaration store can be extracted as an \texttt{Env UInt64} via \texttt{toEnv} for use with GenericKernel functions.
+
+The five well-formedness axioms, formalized in the Theory module (Section~\ref{sec:formalization}), are:
+
+\begin{definition}[AstroNet]\label{def:ca-hypergraph}\label{def:well-formed}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Theory/Theory/Core/Basic.lean\#L20}
+Let $H$ be a hash function.  An \textbf{AstroNet} is a finite set $A$ of nerves with $H$, satisfying:
+\begin{enumerate}
+  \setcounter{enumi}{-1}
+  \item \textbf{(Content-addressing)} For every $e \in A$, $\mathrm{id}(e) = H(\mathrm{record}(e))$.
+  \item \textbf{(Self-reference)} Every atom $e$ ($\omega(e) = 0$) satisfies $\mathrm{ref}(e) = (\mathrm{id}(e))$.
+  \item \textbf{(Injectivity)} The map $e \mapsto \mathrm{id}(e)$ is injective on $A$.
+  \item \textbf{(Closure)} For every $e \in A$ and $r_i \in \mathrm{ref}(e)$, there exists $e' \in A$ with $\mathrm{id}(e') = r_i$.
+  \item \textbf{(No self-reference)} For every nerve $e$ with $\omega(e) > 0$, $\mathrm{id}(e) \notin \mathrm{ref}(e)$.
+\end{enumerate}
+\end{definition}
+
+The closure axiom guarantees that the nerve store is self-contained: every referenced hash resolves to a nerve in the store.  The no-self-reference axiom excludes trivial cycles at compound nodes.  Together with injectivity, these axioms ensure that the store forms a well-founded directed hypergraph on acyclic sub-sets.
+
+\subsection{Shatter}\label{sec:shatter}
+
+The function \texttt{shatter} decomposes an expression tree into nerves, one per distinct sub-expression.  It traverses the expression recursively, computes the hash of each sub-expression via \texttt{hashExpr}, and inserts a nerve into the \texttt{AstroNet} if one with that hash does not already exist.
+
+\begin{lstlisting}[language={},morekeywords={partial,def,match,with,let,some,none}]
+partial def shatter (e : Expr) (net : AstroNet) : UInt64 * AstroNet :=
+  let (h, record) := hashExpr e
+  match net.get h with
+  | some _ => (h, net)     -- already in store, skip
+  | none =>
+    match e with
+    | .bvar _ | .sort _ | .const _ _ | .lit _ =>
+        let nerve := { hash := h, ref := [h], record }
+        (h, net.add nerve)
+    | .app f a =>
+        let (fh, net) := shatter f net
+        let (ah, net) := shatter a net
+        let nerve := { hash := h, ref := [fh, ah], record }
+        (h, net.add nerve)
+    ...
+\end{lstlisting}
+
+Leaf nodes produce atoms: $\mathrm{ref} = [\mathrm{hash}]$, width~0.  Binary nodes (\texttt{app}, \texttt{lam}, \texttt{forallE}) produce width-1 nerves: $\mathrm{ref} = [h_1, h_2]$.  Ternary nodes (\texttt{letE}) produce width-2 nerves: $\mathrm{ref} = [h_1, h_2, h_3]$.  The deduplication check (\texttt{net.get h}) is a \texttt{HashMap} lookup, constant time.
+
+The \texttt{ref} list may contain repeated hashes.  For example, \texttt{forallE (const Nat []) (const Nat [])} produces $\mathrm{ref} = [h_{\mathrm{Nat}}, h_{\mathrm{Nat}}]$, a valid configuration representing a loop in the hypergraph.
+
+Figure~\ref{fig:natadd-nerves} shows the nerve graph for \texttt{Nat.add} after Shatter.  Compare with Figure~\ref{fig:natadd-expr}: the four \texttt{Nat} tree nodes become one nerve, and the two \texttt{bvar~0} nodes become one nerve.  The tree has 21 nodes; the nerve store has 15.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    leaf/.style={draw, rounded corners=3pt, fill=blue!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    shared/.style={draw, rounded corners=3pt, fill=green!15, thick, inner sep=2pt, font=\scriptsize\ttfamily},
+    edge/.style={-Latex, thin}
+]
+% Atoms (shared nodes highlighted)
+\node[shared] (nat) at (0, 0) {Nat \scriptsize$\times 4$};
+\node[leaf] (rec) at (-2.5, 0) {Nat.rec};
+\node[leaf] (succ) at (7, -2.2) {Nat.succ};
+\node[shared] (bv0) at (6, 0) {bvar 0 \scriptsize$\times 2$};
+\node[leaf] (bv1) at (2.5, -1.1) {bvar 1};
+
+% Compound nerves
+\node[nd] (lammot) at (-1, -1.1) {lam};
+\node[nd] (app1) at (0.5, -2.2) {app};
+\node[nd] (app2) at (1.5, -3.3) {app};
+\node[nd] (appsucc) at (7, -3.3) {app};
+\node[nd] (laminner) at (6, -4.4) {lam};
+\node[nd] (lamstep) at (4, -4.4) {lam};
+\node[nd] (app3) at (3, -5.5) {app};
+\node[nd] (app4) at (4.5, -6.6) {app};
+\node[nd] (lam2) at (3, -7.7) {lam};
+\node[nd] (root) at (1.5, -8.8) {lam};
+
+% Edges — each nerve points to its children
+\draw[edge] (lammot) -- (nat);
+\draw[edge] (lammot) -- (nat);
+\draw[edge] (app1) -- (rec);
+\draw[edge] (app1) -- (lammot);
+\draw[edge] (app2) -- (app1);
+\draw[edge] (app2) -- (bv1);
+\draw[edge] (appsucc) -- (succ);
+\draw[edge] (appsucc) -- (bv0);
+\draw[edge] (laminner) -- (nat);
+\draw[edge] (laminner) -- (appsucc);
+\draw[edge] (lamstep) -- (nat);
+\draw[edge] (lamstep) -- (laminner);
+\draw[edge] (app3) -- (app2);
+\draw[edge] (app3) -- (lamstep);
+\draw[edge] (app4) -- (app3);
+\draw[edge] (app4) -- (bv0);
+\draw[edge] (lam2) -- (nat);
+\draw[edge] (lam2) -- (app4);
+\draw[edge] (root) -- (nat);
+\draw[edge] (root) -- (lam2);
+\end{tikzpicture}
+\caption{Nerve graph for \texttt{Nat.add} after Shatter.  Green nodes are shared: \texttt{Nat} appears once (was four tree nodes), \texttt{bvar~0} appears once (was two).  21 tree nodes $\to$ 15 nerves.  Compare with Figure~\ref{fig:natadd-expr}.}
+\label{fig:natadd-nerves}
+\end{figure}
+
+\subsection{ExprWithHash and O(1) definitional equality}\label{sec:exprwithhash}
+
+\texttt{ExprWithHash} wraps an \texttt{Expr UInt64} with a pre-computed content hash:
+
+\begin{lstlisting}[language={},morekeywords={structure,where,def}]
+structure ExprWithHash where
+  expr : Expr UInt64
+  hash : UInt64
+\end{lstlisting}
+
+Smart constructors (\texttt{mkBVar}, \texttt{mkApp}, \texttt{mkLam}, etc.)\ call \texttt{hashExpr} once at construction time.  Subsequent reads of \texttt{.hash} are field accesses, not tree traversals.
+
+The function \texttt{defEqWithHash} exploits this:
+
+\begin{lstlisting}[language={},morekeywords={def,if,then,else}]
+def defEqWithHash (net : AstroNet) (a b : ExprWithHash) : Bool :=
+  if a.hash == b.hash then true
+  else GenericKernel.defEq net.toEnv a.expr b.expr
+\end{lstlisting}
+
+When hashes match, the comparison is O(1).  When they differ, the function falls back to GenericKernel's structural \texttt{defEq}, which performs full WHNF reduction and structural comparison.  The O(1) path applies to store-resident expressions whose hashes were computed at registration time.  Temporarily constructed expressions (e.g., intermediate terms during type inference) require the fallback.
+
+HypergraphKernel also provides a \texttt{defEq} function (without \texttt{ExprWithHash}) that recomputes hashes via \texttt{hashExpr} before comparing.  This adds a hash fast-path but still costs O(n) for the initial hash computation.  The three modes (structural \texttt{defEq}, rehash \texttt{defEq}, and cached \texttt{defEqWithHash}) are compared empirically in Section~\ref{sec:benchmark}.

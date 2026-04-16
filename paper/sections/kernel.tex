@@ -1,0 +1,81 @@
+% !TEX root = ../main.tex
+\section{The Hypergraph Kernel}\label{sec:kernel}
+
+Barkeshli, Douglas, and Freedman~\cite{BDF2026} model mathematical reasoning as a directed hypergraph whose hyperedges connect $p$ inputs to $q$ outputs.  We instantiate their framework on CIC by defining two primitives: a \emph{nerve} (a single content-addressed hyperedge) and an \emph{AstroNet} (a finite set of nerves).  The kernel operates exclusively on these two structures.
+
+\begin{definition}[AstroNerve]\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/HypergraphKernel/HypergraphKernel/AstroNerve.lean\#L21}
+An \textbf{AstroNerve} is a triple $(\mathrm{id},\, \mathrm{ref},\, \mathrm{record})$ where $\mathrm{id}$ is a hash, $\mathrm{ref} = (r_1, \ldots, r_k)$ is an ordered list of reference hashes, and $\mathrm{record}$ is a serialized content string.  The \textbf{width} is $\omega(e) = |\mathrm{ref}(e)| - 1$.  Nerves with $\omega = 0$ are vertices; nerves with $\omega \geq 1$ are hyperedges.
+\end{definition}
+
+\begin{definition}[AstroNet]\label{def:ca-hypergraph}\label{def:well-formed}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Theory/Theory/Core/Basic.lean\#L20}
+An \textbf{AstroNet} is a finite set $A$ of nerves together with a hash function $H$, satisfying five conditions:
+\begin{enumerate}
+  \setcounter{enumi}{-1}
+  \item \textbf{Content-addressing.} $\mathrm{id}(e) = H(\mathrm{record}(e))$ for every $e \in A$.
+  \item \textbf{Self-reference.} Every atom ($\omega(e) = 0$) satisfies $\mathrm{ref}(e) = (\mathrm{id}(e))$.
+  \item \textbf{Injectivity.} $e \mapsto \mathrm{id}(e)$ is injective on $A$.
+  \item \textbf{Closure.} For every $r_i \in \mathrm{ref}(e)$, there exists $e' \in A$ with $\mathrm{id}(e') = r_i$.
+  \item \textbf{No self-reference.} For $\omega(e) > 0$, $\mathrm{id}(e) \notin \mathrm{ref}(e)$.
+\end{enumerate}
+The $\mathrm{ref}$ list may contain repeated hashes (e.g., $\mathrm{ref} = [h_{\mathrm{Nat}}, h_{\mathrm{Nat}}]$ for $\texttt{forallE}(\texttt{Nat}, \texttt{Nat})$).
+\end{definition}
+
+These conditions support a depth filtration formalized in the Theory module (534 lines, using Mathlib's \texttt{Finset} library).
+
+\begin{definition}[Depth filtration]\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Theory/Theory/Core/Basic.lean\#L76}
+Given an AstroNet $A$, define the filtration $A^{(0)} \subseteq A^{(1)} \subseteq \cdots$ by
+\[
+  A^{(0)} = \{ e \in A \mid \omega(e) = 0 \}, \qquad
+  A^{(n+1)} = \{ e \in A \mid \forall\, r \in \mathrm{ref}(e),\; r \in \mathrm{ids}(A^{(n)}) \}.
+\]
+The \textbf{depth} of $e$ is $\delta(e) = \min\{n \mid e \in A^{(n)}\}$.  Nerves on reference cycles have no finite depth.
+\end{definition}
+
+This filtration is monotone and stabilizes on any finite AstroNet.  Staged nerves are acyclic; unstaged nerves reach cycles.  Proofs appear in Appendix~\ref{app:proofs}.
+
+In the construction of \texttt{Nat.add\_comm} and its 14 prerequisites, the hypergraph grows from empty to 612 nerves: 15 declaration nerves and 597 expression nerves.
+
+Figure~\ref{fig:succ-compare} illustrates the difference on a simple example: the type of \texttt{Nat.succ}, which is $\mathbb{N} \to \mathbb{N}$ (\texttt{forallE(Nat, Nat)}).
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.44\textwidth}
+\centering
+\begin{tikzpicture}[
+    nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=3pt, font=\small\ttfamily},
+    dup/.style={draw, rounded corners=3pt, fill=red!10, thick, inner sep=3pt, font=\small\ttfamily},
+    edge/.style={-Latex, thin},
+    lbl/.style={font=\scriptsize, gray}
+]
+  \node[nd] (root) at (0, 0) {forallE};
+  \node[dup] (nat1) at (-1.5, -1.5) {Nat};
+  \node[dup] (nat2) at (1.5, -1.5) {Nat};
+  \draw[edge] (root) -- (nat1);
+  \draw[edge] (root) -- (nat2);
+  \node[lbl] at (-1.5, -2.2) {copy 1};
+  \node[lbl] at (1.5, -2.2) {copy 2};
+\end{tikzpicture}
+\caption{Expression tree: 3 nodes, two copies of \texttt{Nat}.}
+\label{fig:succ-tree}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.44\textwidth}
+\centering
+\begin{tikzpicture}[
+    nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=3pt, font=\small\ttfamily},
+    shared/.style={draw, rounded corners=3pt, fill=green!15, thick, inner sep=3pt, font=\small\ttfamily},
+    edge/.style={-Latex, thin},
+    lbl/.style={font=\scriptsize, gray}
+]
+  \node[nd] (root) at (0, 0) {forallE};
+  \node[shared] (nat) at (0, -1.5) {Nat};
+  \draw[edge] (root) to[out=-150, in=90] (-0.3, -0.9) -- (nat);
+  \draw[edge] (root) to[out=-30, in=90] (0.3, -0.9) -- (nat);
+  \node[lbl] at (0, -2.2) {one nerve, two refs};
+  \node[lbl] at (0, -2.8) {ref $= [h_{\mathrm{Nat}}, h_{\mathrm{Nat}}]$};
+\end{tikzpicture}
+\caption{Hypergraph: 2 nerves, \texttt{Nat} shared.}
+\label{fig:succ-hyper}
+\end{subfigure}
+\caption{The type of \texttt{Nat.succ} ($\mathbb{N} \to \mathbb{N}$) in the two kernels.  Left: two independent \texttt{Nat} nodes.  Right: one \texttt{Nat} nerve referenced twice.}
+\label{fig:succ-compare}
+\end{figure}

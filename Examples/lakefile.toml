@@ -1,0 +1,21 @@
+name = "Examples"
+version = "0.1.0"
+
+[[require]]
+name = "TreeKernel"
+path = "../TreeKernel"
+
+[[require]]
+name = "HypergraphKernel"
+path = "../HypergraphKernel"
+
+[[lean_lib]]
+name = "Examples"
+
+[[lean_exe]]
+name = "export15"
+root = "Export"
+
+[[lean_exe]]
+name = "hypertest"
+root = "Examples.Tests.HyperTest"

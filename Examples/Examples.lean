@@ -1,0 +1,1 @@
+-- Examples: run `lake build Examples.LeanCheck` etc. individually

@@ -1,0 +1,143 @@
+% !TEX root = ../main.tex
+\section{Store Equivalence}\label{sec:equivalence}
+
+GenericKernel's five functions are all polymorphic in \texttt{Key}.  TreeKernel and NerveKernel call the same \texttt{GenericKernel.check} at different types.  Store Equivalence is the claim that both instantiations accept or reject the same declarations.  The file \texttt{Verify/StoreEquivalence.lean}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Examples/Examples/Verify/StoreEquivalence.lean\#L103} makes this concrete.
+
+\subsection{Two instantiations of the same environment}
+
+A polymorphic \texttt{Keys} structure bundles the 15 declaration keys.  Two concrete instantiations produce the two representations:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.47\textwidth}p{0.47\textwidth}@{}}
+\toprule
+\textbf{TreeKernel} (\texttt{stringKeys}) & \textbf{NerveKernel} (\texttt{uint64Keys}) \\
+\midrule
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{green!3},escapeinside={(*}{*)}]
+def stringKeys : Keys String where
+  nat := (*\textcolor{red!70!black}{"Nat"}*)
+  zero := (*\textcolor{blue!70!black}{"Nat.zero"}*)
+  succ := (*\textcolor{green!50!black}{"Nat.succ"}*)
+  natRec := (*\textcolor{orange!80!black}{"Nat.rec"}*)
+  add := (*\textcolor{purple!70!black}{"Nat.add"}*)
+  eq := (*\textcolor{teal}{"Eq"}*)
+  refl := (*\textcolor{brown}{"Eq.refl"}*)
+  eqRec := (*\textcolor{violet}{"Eq.rec"}*)
+  addZero := (*\textcolor{cyan!60!black}{"Nat.add\_zero"}*)
+  ...
+  natAddComm := (*\textcolor{magenta!70!black}{"Nat.add\_comm"}*)
+\end{lstlisting}
+&
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{blue!3},escapeinside={(*}{*)}]
+-- keys = H(type expression)
+def uint64Keys : Keys UInt64 where
+  nat := (*\textcolor{red!70!black}{1147289952..}*)
+  zero := (*\textcolor{blue!70!black}{1030311651..}*)
+  succ := (*\textcolor{green!50!black}{3035285639..}*)
+  natRec := (*\textcolor{orange!80!black}{6708530114..}*)
+  add := (*\textcolor{purple!70!black}{9302105135..}*)
+  eq := (*\textcolor{teal}{1279634138..}*)
+  refl := (*\textcolor{brown}{1568597419..}*)
+  eqRec := (*\textcolor{violet}{2619219959..}*)
+  addZero := (*\textcolor{cyan!60!black}{1498207024..}*)
+  ...
+  natAddComm := (*\textcolor{magenta!70!black}{7740785570..}*)
+\end{lstlisting}
+\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The function \texttt{buildEnv} is polymorphic: it constructs all 15 declarations for \emph{any} key type.  The type and proof expressions are built using parameterized helpers (\texttt{mkAdd'}, \texttt{mkEq'}, etc.)\ that reference keys from the \texttt{Keys} structure rather than hardcoded strings or integers.
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.47\textwidth}p{0.47\textwidth}@{}}
+\toprule
+\textbf{String key calls} & \textbf{UInt64 key calls} \\
+\midrule
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{green!3}]
+buildEnv stringKeys
+-- internally calls:
+check "Nat" natType
+  none .constructor env
+check "Nat.zero" zeroType
+  none .constructor env
+...
+check "Nat.add_comm" addCommType
+  (some addCommProof) .definition env
+\end{lstlisting}
+&
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{blue!3},escapeinside={(*}{*)}]
+buildEnv uint64Keys
+-- internally calls:
+check (*\textcolor{red!70!black}{1147289952..}*) natType
+  none .constructor env
+check (*\textcolor{blue!70!black}{1030311651..}*) zeroType
+  none .constructor env
+...
+check (*\textcolor{magenta!70!black}{7740785570..}*) addCommType
+  (some addCommProof) .definition env
+\end{lstlisting}
+\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The type expressions (\texttt{natType}, \texttt{addCommType}), proof terms (\texttt{addCommProof}), and declaration kinds (\texttt{.constructor}, \texttt{.definition}) are \emph{identical} in both columns.  Only the key values differ.
+
+The difference emerges \emph{after} type-checking.  NerveKernel's \texttt{check} wrapper calls \texttt{GenericKernel.check} for verification, then additionally calls \texttt{shatter} to decompose the expression into nerves:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.47\textwidth}p{0.47\textwidth}@{}}
+\toprule
+\textbf{TreeKernel: check only} & \textbf{NerveKernel: check + shatter} \\
+\midrule
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{green!3}]
+-- 1. type-check
+let env := GenericKernel.check
+  "Nat.add" addType (some addValue)
+  .definition env
+
+-- done. declaration stored in
+-- HashMap String Decl
+-- no further processing
+\end{lstlisting}
+&
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{blue!3},escapeinside={(*}{*)}]
+-- 1. type-check (same logic)
+let env := GenericKernel.check
+  (*\textcolor{purple!70!black}{9302105135..}*) addType (some addValue)
+  .definition env
+
+-- 2. shatter: decompose into nerves
+let (_, net) := shatter addValue net
+-- 21 tree nodes -> 15 nerves
+-- Nat stored once (was 4 copies)
+-- result: HashMap UInt64 AstroNerve
+\end{lstlisting}
+\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+TreeKernel stores declarations and stops.  NerveKernel additionally decomposes each expression into content-addressed nerves, producing the hypergraph structure described in Section~\ref{sec:tree-to-nerve}.  The type-checking step is identical; the shatter step is what creates the nerve store.
+
+\subsection{Verification via native\_decide}
+
+Three theorems confirm that both instantiations produce the same result:
+
+\begin{lstlisting}[language={},morekeywords={theorem,by}]
+-- TreeKernel succeeds on all 15 declarations
+theorem lean_build_succeeds :
+    (buildEnv stringKeys).isSome = true := by native_decide
+
+-- NerveKernel succeeds on all 15 declarations
+theorem astro_build_succeeds :
+    (buildEnv uint64Keys).isSome = true := by native_decide
+
+-- Both produce environments of equal size
+theorem lean_astro_same_size :
+    (buildEnv stringKeys).get!.size
+    = (buildEnv uint64Keys).get!.size := by native_decide
+\end{lstlisting}
+
+Each theorem is proved by \texttt{native\_decide}, which compiles the expression to native code and evaluates it at compile time.  This is concrete verification on a specific 15-declaration environment.

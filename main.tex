@@ -1,0 +1,39 @@
+% !TEX root = main.tex
+\documentclass[11pt]{article}
+\usepackage{preamble}
+
+\title{CIC Expressions as a Content-Addressed Directed Hypergraph}
+\author{
+  Xinze Li\thanks{Department of Mathematics, University of Toronto. \texttt{lixinze@math.toronto.edu}}
+}
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Expressions of the Calculus of Inductive Constructions carry a natural directed hypergraph structure in the sense of Barkeshli, Douglas, and Freedman.  We encode this structure in a runnable content-addressed CIC kernel and verify its equivalence with a traditional name-based CIC kernel.
+\end{abstract}
+
+\vspace{2pt}
+{\small\noindent Repository: \url{https://github.com/MathNetwork/cic-kernal}. Apache~2.0.}
+
+{\small\tableofcontents}
+\newpage
+
+\input{sections/introduction}
+\input{sections/kernel}
+\input{sections/equivalence}
+\input{sections/formalization}
+\input{sections/conclusion}
+
+\addcontentsline{toc}{section}{References}
+\bibliographystyle{alpha}
+\bibliography{references}
+
+\appendix
+\input{sections/appendix}
+\input{sections/deduplication}
+
+\end{document}

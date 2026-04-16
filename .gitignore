@@ -1,0 +1,16 @@
+# Lean
+.lake/
+lake-packages/
+
+# Node
+node_modules/
+.next/
+out/
+
+# OS
+.DS_Store
+
+# Editor
+*.tsbuildinfo
+next-env.d.ts
+paper/

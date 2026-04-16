@@ -1,0 +1,12 @@
+% !TEX root = ../main.tex
+\section{Conclusion and Open Questions}\label{sec:conclusion}
+
+CIC type-checking can be performed directly on a content-addressed directed hypergraph.  The hypergraph kernel, implemented in Lean~4 with no reference to expression trees, verifies the same declarations as a traditional tree-based kernel.  The hypergraph grows monotonically: every intermediate expression produced during type-checking becomes a permanent nerve in the store.
+
+\begin{itemize}
+\item \emph{General equivalence.}  The two kernels are currently verified on 15 concrete declarations.  A general proof for all well-typed CIC environments would require showing that \texttt{checkNerve} and the traditional \texttt{check} are bisimilar.
+\item \emph{Scale.}  At Mathlib scale (300K+ declarations), the hypergraph would expose which sub-expressions are structural hubs and whether the depth filtration produces nontrivial persistent homology.  Our prior analysis of Mathlib's dependency network~\cite{LPSS26b} revealed hub structure at the declaration level; the nerve hypergraph extends this to sub-expression level.
+\item \emph{Mathematical structure.}  The 612-nerve hypergraph is the first concrete instance of the framework of~\cite{BDF2026} on a proof system.  What algebraic and topological properties does it carry?  Metric structure (Jaccard distance on nerve reference sets), quotient operations (collapsing sub-hypergraphs), and categorical embeddings (functors between AstroNets) are natural objects to study.  The depth filtration already provides one invariant; others may emerge at scale.
+\item \emph{Cross-system interoperability.}  Content-addressing makes nerve identity independent of naming.  Yatima~\cite{Arg23} demonstrated that Lean~4 expressions can be content-addressed across systems for zero-knowledge verification.  The nerve hypergraph extends this idea: different proof assistants sharing CIC typing rules could in principle operate on the same hypergraph, with identity determined by content rather than by any system-specific naming convention.
+\item \emph{Zero-knowledge verification.}  zkPi~\cite{zkPi} proved Lean theorems in zero-knowledge by placing a CIC kernel inside a zkSNARK circuit.  Content-addressed nerves are a natural fit for this setting: a prover can commit to a nerve hash and prove that the corresponding type-checking trace is valid without revealing the proof term.  A Rust CIC kernel running inside SP1 zkVM has produced cryptographic receipts of correct type-checking in a separate project.
+\end{itemize}

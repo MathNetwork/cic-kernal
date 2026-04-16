@@ -1,0 +1,43 @@
+% !TEX root = ../main.tex
+
+\section{Verification details and proofs}\label{app:verification}\label{app:proofs}
+
+Three compile-time theorems verify that the tree kernel succeeds on all 15 declarations, that a hash-keyed variant also succeeds, and that both produce environments of equal size.\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Examples/Examples/Verify/StoreEquivalence.lean}  Each theorem is proved by \texttt{native\_decide}, which compiles the expression to native code and evaluates it during compilation.  If evaluation fails, the build fails.
+
+The hypergraph kernel's \texttt{checkNerve} is tested at runtime on the same 15 declarations, constructing all expressions directly as nerves without any intermediate expression tree.\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Examples/Examples/Tests/HyperTest.lean}  All 15 declarations pass.  The function \texttt{AstroNet.validate} confirms that the final nerve store satisfies the five conditions of Definition~\ref{def:ca-hypergraph}.
+
+\bigskip
+
+The following properties of AstroNet are formalized in the Theory module.\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Theory/Theory/Core/Basic.lean}
+
+\begin{theorem}[Monotonicity]
+$A^{(n)} \subseteq A^{(n+1)}$ for all $n$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By induction on $n$.  Base case ($n = 0$): if $e \in A^{(0)}$ then $\omega(e) = 0$, so by the self-reference condition $\mathrm{ref}(e) = (\mathrm{id}(e))$.  The single reference $\mathrm{id}(e)$ belongs to $\mathrm{ids}(A^{(0)})$ since $e$ itself is in $A^{(0)}$, so $e \in A^{(1)}$.  Inductive step: if $e \in A^{(n+1)}$, then every $r \in \mathrm{ref}(e)$ has $r \in \mathrm{ids}(A^{(n)})$.  By the induction hypothesis $A^{(n)} \subseteq A^{(n+1)}$, so $\mathrm{ids}(A^{(n)}) \subseteq \mathrm{ids}(A^{(n+1)})$, giving $e \in A^{(n+2)}$.
+\end{proof}
+
+\begin{theorem}[Stabilization]\label{prop:stage-stabilize}
+For any finite AstroNet $A$, there exists $N$ such that $A^{(n)} = A^{(N)}$ for all $n \geq N$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The sequence $|A^{(0)}| \leq |A^{(1)}| \leq \cdots$ is monotone and bounded above by $|A|$.  A bounded monotone sequence of natural numbers converges: there exists $N$ with $|A^{(N)}| = |A^{(N+1)}|$.  Since $A^{(N)} \subseteq A^{(N+1)}$ and both are finite sets of equal cardinality, $A^{(N)} = A^{(N+1)}$, and by induction $A^{(n)} = A^{(N)}$ for all $n \geq N$.
+\end{proof}
+
+\begin{theorem}[Staged nerves are acyclic]
+If $e \in A^{(n)}$ for some $n$, then $e$ does not participate in any reference cycle.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By strong induction on $n$.  If $n = 0$, then $e$ is an atom with $\mathrm{ref}(e) = (\mathrm{id}(e))$.  A cycle requires a distinct node, so $e$ cannot be on a cycle.  If $n = k+1$, suppose $e$ lies on a cycle.  Then some reference $h' \in \mathrm{ref}(e)$ also lies on the cycle.  Since $e \in A^{(k+1)}$, the closure property gives a nerve $e'$ with $\mathrm{id}(e') = h'$ and $e' \in A^{(k)}$.  By the induction hypothesis, $e'$ is not on any cycle, contradicting $h'$ being on the cycle.
+\end{proof}
+
+\begin{theorem}[Unstaged nerves reach cycles]
+If $e \in A$ and $e \notin A^{(n)}$ for all $n$, then following references from $e$ eventually reaches a nerve on a cycle.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The filtration stabilizes at some $N$.  Since $e \notin A^{(N+1)}$, there exists a reference $r \in \mathrm{ref}(e)$ with $r \notin \mathrm{ids}(A^{(N)})$.  By closure, some nerve $e_1$ has $\mathrm{id}(e_1) = r$, and $e_1$ is also unstaged.  The no-self-reference condition ensures $e_1 \neq e$.  Iterating produces a sequence of distinct unstaged nerves.  Since $A$ is finite, the pigeonhole principle forces a repetition, forming a cycle.
+\end{proof}

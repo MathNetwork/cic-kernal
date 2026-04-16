@@ -1,0 +1,19 @@
+name: Lean CI
+
+on:
+  push:
+    paths-ignore:
+      - 'paper/**'
+  pull_request:
+    paths-ignore:
+      - 'paper/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          build-args: ""

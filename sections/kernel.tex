@@ -1,0 +1,318 @@
+% !TEX root = ../main.tex
+\section{From CIC Expressions to Content-Addressed Nerves}\label{sec:kernel}
+
+This section presents the mathematical definitions first, then shows how they are implemented in the kernel, with side-by-side comparison of the name-based and hash-based representations throughout.
+
+\subsection{Definitions}\label{sec:definitions}
+
+\begin{definition}[AstroNerve]\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/NerveKernel/NerveKernel/AstroNerve.lean\#L21}
+An \textbf{AstroNerve} is a triple $(\mathrm{id},\, \mathrm{ref},\, \mathrm{record})$ where $\mathrm{id}$ is a hash, $\mathrm{ref} = (r_1, \ldots, r_k)$ is an ordered list of reference hashes, and $\mathrm{record}$ is a serialized content string.  The \textbf{width} is $\omega(e) = |\mathrm{ref}(e)| - 1$.
+\end{definition}
+
+\begin{definition}[AstroNet]\label{def:ca-hypergraph}\label{def:well-formed}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/Theory/Theory/Core/Basic.lean\#L20}
+An \textbf{AstroNet} is a finite set $A$ of nerves together with a hash function $H$, satisfying five axioms:
+\begin{enumerate}
+  \setcounter{enumi}{-1}
+  \item \textbf{Content-addressing.} $\mathrm{id}(e) = H(\mathrm{record}(e))$ for every $e \in A$.
+  \item \textbf{Self-reference.} Every atom ($\omega(e) = 0$) satisfies $\mathrm{ref}(e) = (\mathrm{id}(e))$.
+  \item \textbf{Injectivity.} $e \mapsto \mathrm{id}(e)$ is injective on $A$.
+  \item \textbf{Closure.} For every $r_i \in \mathrm{ref}(e)$, there exists $e' \in A$ with $\mathrm{id}(e') = r_i$.
+  \item \textbf{No self-reference.} For $\omega(e) > 0$, $\mathrm{id}(e) \notin \mathrm{ref}(e)$.
+\end{enumerate}
+The $\mathrm{ref}$ list may contain repeated hashes (e.g., $\mathrm{ref} = [h_{\mathrm{Nat}}, h_{\mathrm{Nat}}]$ for $\texttt{forallE}(\texttt{Nat}, \texttt{Nat})$).
+\end{definition}
+
+Width arises directly from CIC constructor arity:
+
+\begin{center}\small
+\begin{tabular}{@{}llc@{}}
+\toprule
+CIC constructor & Children & Width \\
+\midrule
+\texttt{bvar}, \texttt{sort}, \texttt{const}, \texttt{lit} & 0 & 0 (atom) \\
+\texttt{app}, \texttt{lam}, \texttt{forallE} & 2 & 1 \\
+\texttt{letE} & 3 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{The parameterized expression type}\label{sec:expr}
+
+The kernel represents expressions with a single type parameterized over \texttt{Key}:\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/GenericKernel/GenericKernel/Expr.lean\#L40}
+
+\begin{lstlisting}[language={},morekeywords={inductive,where,deriving}]
+inductive Expr (Key : Type) where
+  | bvar    : Nat -> Expr Key         -- width 0
+  | sort    : Level -> Expr Key       -- width 0
+  | const   : Key -> List Level       -- width 0
+            -> Expr Key
+  | app     : Expr Key -> Expr Key    -- width 1
+            -> Expr Key
+  | lam     : Expr Key -> Expr Key    -- width 1
+            -> Expr Key
+  | forallE : Expr Key -> Expr Key    -- width 1
+            -> Expr Key
+  | letE    : Expr Key -> Expr Key    -- width 2
+            -> Expr Key -> Expr Key
+  | lit     : Literal -> Expr Key     -- width 0
+\end{lstlisting}
+
+The \texttt{const} constructor is the only one that mentions \texttt{Key}.  This is why changing the key type affects only how declarations are referenced, not the structure of expressions or the logic of type-checking.
+
+Two instantiations produce two representations of the same mathematics:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.45\textwidth}p{0.45\textwidth}@{}}
+\toprule
+\textbf{TreeKernel} (\texttt{Key = String}) & \textbf{NerveKernel} (\texttt{Key = UInt64}) \\
+\midrule
+\texttt{const "Nat.add" []} & \texttt{const 9302105135.. []} \\[2pt]
+Identity by name & Identity by content hash \\[2pt]
+Declarations stored in & Declarations stored in \\
+\quad\texttt{HashMap String Decl} & \quad\texttt{HashMap UInt64 Decl} \\[2pt]
+Each occurrence of a & Each occurrence shares \\
+sub-expression is a & one nerve via hash \\
+separate tree node & deduplication \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{From expression tree to nerve store}\label{sec:tree-to-nerve}
+
+The function \texttt{hashExpr}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/NerveKernel/NerveKernel/Hash.lean\#L32} computes a Merkle-style content hash for each sub-expression.  Leaf nodes serialize their content directly (\texttt{bvar 3} $\to$ \texttt{"BVar(3)"}).  Compound nodes serialize the hashes of their children (\texttt{app f a} $\to$ \texttt{"App($h_f$, $h_a$)"}).  The hash function is Lean's \texttt{String.hash}, producing a \texttt{UInt64}.
+
+The function \texttt{shatter}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/NerveKernel/NerveKernel/Shatter.lean\#L33} decomposes an expression tree into a set of nerves.  For each sub-expression, it computes the hash and checks whether a nerve with that hash already exists in the store.  If so, the sub-expression is a duplicate and is skipped.  If not, a new nerve is created.
+
+\paragraph{Concrete example: \texttt{Nat.succ} type.}
+The type of \texttt{Nat.succ} is \texttt{forallE (const Nat []) (const Nat [])}, i.e., $\mathbb{N} \to \mathbb{N}$.  This expression has three tree nodes but only two distinct sub-expressions:
+
+\begin{center}
+\begin{tikzpicture}[
+  nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=3pt, font=\small\ttfamily},
+  dup/.style={draw, rounded corners=3pt, fill=red!10, thick, inner sep=3pt, font=\small\ttfamily},
+  shared/.style={draw, rounded corners=3pt, fill=green!15, thick, inner sep=3pt, font=\small\ttfamily},
+  edge/.style={-Latex, thin},
+  lbl/.style={font=\scriptsize, gray}
+]
+% Left: expression tree
+\begin{scope}[shift={(-4,0)}]
+  \node[lbl] at (0, 1) {\textbf{Expression tree (3 nodes)}};
+  \node[nd] (root) at (0, 0) {forallE};
+  \node[dup] (nat1) at (-1.5, -1.3) {Nat};
+  \node[dup] (nat2) at (1.5, -1.3) {Nat};
+  \draw[edge] (root) -- (nat1);
+  \draw[edge] (root) -- (nat2);
+  \node[lbl] at (-1.5, -2) {copy 1};
+  \node[lbl] at (1.5, -2) {copy 2};
+  \node[font=\scriptsize, red!70!black] at (0, -2.5) {two separate nodes, same content};
+\end{scope}
+% Arrow
+\draw[->, very thick, gray] (-0.8, -0.5) -- (0.8, -0.5) node[midway, above, font=\small] {Shatter};
+% Right: nerve store
+\begin{scope}[shift={(4,0)}]
+  \node[lbl] at (0, 1) {\textbf{Nerve store (2 nerves)}};
+  \node[nd] (root2) at (0, 0) {forallE};
+  \node[shared] (nat) at (0, -1.3) {Nat};
+  \draw[edge] (root2) to[out=-150, in=90] (-0.3, -0.9) -- (nat);
+  \draw[edge] (root2) to[out=-30, in=90] (0.3, -0.9) -- (nat);
+  \node[font=\scriptsize, green!50!black] at (0, -2) {one nerve, two references};
+  \node[lbl] at (0, -2.5) {ref = [$h_{\mathrm{Nat}}$, $h_{\mathrm{Nat}}$]};
+\end{scope}
+\end{tikzpicture}
+\end{center}
+
+The two \texttt{Nat} nodes in the tree have identical content, so \texttt{hashExpr} produces the same hash for both.  When \texttt{shatter} encounters the second \texttt{Nat}, it finds the hash already in the store and skips the insertion.  The \texttt{forallE} nerve's \texttt{ref} list contains the same hash twice: $[h_{\mathrm{Nat}}, h_{\mathrm{Nat}}]$.  Three tree nodes become two nerves.
+
+\paragraph{Hypergraph structure in the nerve store.}
+
+Each nerve is a hyperedge in the BDF sense.  To make this explicit, consider the expression \texttt{app (const Nat.add []) (const Nat.zero [])} (i.e., the partial application $\mathrm{add}\;\mathrm{zero}$).  The two representations are:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.45\textwidth}p{0.45\textwidth}@{}}
+\toprule
+\textbf{TreeKernel} (expression tree) & \textbf{NerveKernel} (nerve store) \\
+\midrule
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{green!3}]
+app                   (* tree node *)
+ |-- const "Nat.add" []  (* child 1 *)
+ |-- const "Nat.zero" [] (* child 2 *)
+
+3 nodes, parent-child edges
+No identity beyond position
+No deduplication
+\end{lstlisting}
+&
+\begin{lstlisting}[language={},basicstyle=\tiny\ttfamily,frame=none,backgroundcolor=\color{blue!3}]
+nerve h_add:            (* atom, w=0 *)
+  ref = [h_add]
+  record = "Const(9302.., [])"
+
+nerve h_zero:           (* atom, w=0 *)
+  ref = [h_zero]
+  record = "Const(1030.., [])"
+
+nerve h_app:            (* w=1 hyperedge *)
+  ref = [h_add, h_zero]
+  record = "App(h_add, h_zero)"
+\end{lstlisting}
+\\
+\midrule
+\multicolumn{2}{@{}p{0.94\textwidth}@{}}{%
+\textbf{The hypergraph structure:} \texttt{h\_app} is a width-1 hyperedge connecting two atoms.  Its \texttt{ref} list $= [h_{\mathrm{add}}, h_{\mathrm{zero}}]$ is the ordered incidence list in the BDF sense.  The \texttt{record} field determines its identity via $\mathrm{id} = H(\mathrm{record})$.  If another expression elsewhere contains the same \texttt{app(Nat.add, Nat.zero)}, it produces the same hash and is not re-inserted.%
+} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Width, depth, and deduplication all emerge from this encoding: width from the \texttt{ref} length, depth from the nesting of references (atoms have depth 0, this \texttt{app} nerve has depth 1 because both refs are atoms), and deduplication from the hash-equality check in \texttt{shatter}.
+
+This pattern scales: in the \texttt{Nat.add\_comm} proof term, \texttt{Nat} appears 10 times, \texttt{Nat.add} 19 times, \texttt{Nat.succ} 11 times.  Each is stored once.  The full expression has 226 tree nodes; Shatter produces 91 nerves (60\%).
+
+Figures~\ref{fig:natadd-expr} and~\ref{fig:natadd-nerves} show the complete \texttt{Nat.add} expression tree (21 nodes) and its nerve store (15 nerves).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    leaf/.style={draw, rounded corners=3pt, fill=blue!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    edge/.style={-Latex, thin}
+]
+\node[nd] (root) at (0,0) {lam};
+\node[leaf] (nat1) at (-3,-1.1) {Nat};
+\node[nd] (lam2) at (2,-1.1) {lam};
+\node[leaf] (nat2) at (0,-2.2) {Nat};
+\node[nd] (app4) at (4.5,-2.2) {app};
+\node[nd] (app3) at (3,-3.3) {app};
+\node[leaf] (bvar0) at (6.5,-3.3) {bvar 0};
+\node[nd] (app2) at (1,-4.4) {app};
+\node[nd] (lamstep) at (5,-4.4) {lam};
+\node[nd] (app1) at (-0.5,-5.5) {app};
+\node[leaf] (bvar1) at (2.5,-5.5) {bvar 1};
+\node[leaf] (rec) at (-2,-6.6) {Nat.rec};
+\node[nd] (lammot) at (1,-6.6) {lam};
+\node[leaf] (nat3) at (0,-7.7) {Nat};
+\node[leaf] (nat4) at (2,-7.7) {Nat};
+\node[leaf] (nat5) at (4,-5.5) {Nat};
+\node[nd] (laminner) at (6.5,-5.5) {lam};
+\node[leaf] (nat6) at (5.5,-6.6) {Nat};
+\node[nd] (appsucc) at (8,-6.6) {app};
+\node[leaf] (succ) at (7,-7.7) {Nat.succ};
+\node[leaf] (bvar0b) at (9.5,-7.7) {bvar 0};
+\draw[edge] (root) -- (nat1);
+\draw[edge] (root) -- (lam2);
+\draw[edge] (lam2) -- (nat2);
+\draw[edge] (lam2) -- (app4);
+\draw[edge] (app4) -- (app3);
+\draw[edge] (app4) -- (bvar0);
+\draw[edge] (app3) -- (app2);
+\draw[edge] (app3) -- (lamstep);
+\draw[edge] (app2) -- (app1);
+\draw[edge] (app2) -- (bvar1);
+\draw[edge] (app1) -- (rec);
+\draw[edge] (app1) -- (lammot);
+\draw[edge] (lammot) -- (nat3);
+\draw[edge] (lammot) -- (nat4);
+\draw[edge] (lamstep) -- (nat5);
+\draw[edge] (lamstep) -- (laminner);
+\draw[edge] (laminner) -- (nat6);
+\draw[edge] (laminner) -- (appsucc);
+\draw[edge] (appsucc) -- (succ);
+\draw[edge] (appsucc) -- (bvar0b);
+\end{tikzpicture}
+\caption{Expression tree for \texttt{Nat.add}: 21 nodes, four copies of \texttt{Nat}, two copies of \texttt{bvar 0}.}
+\label{fig:natadd-expr}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    nd/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    leaf/.style={draw, rounded corners=3pt, fill=blue!10, inner sep=2pt, font=\scriptsize\ttfamily},
+    shared/.style={draw, rounded corners=3pt, fill=green!15, thick, inner sep=2pt, font=\scriptsize\ttfamily},
+    edge/.style={-Latex, thin}
+]
+\node[shared] (nat) at (0, 0) {Nat \scriptsize$\times 4$};
+\node[leaf] (rec) at (-2.5, 0) {Nat.rec};
+\node[leaf] (succ) at (7, -2.2) {Nat.succ};
+\node[shared] (bv0) at (6, 0) {bvar 0 \scriptsize$\times 2$};
+\node[leaf] (bv1) at (2.5, -1.1) {bvar 1};
+\node[nd] (lammot) at (-1, -1.1) {lam};
+\node[nd] (app1) at (0.5, -2.2) {app};
+\node[nd] (app2) at (1.5, -3.3) {app};
+\node[nd] (appsucc) at (7, -3.3) {app};
+\node[nd] (laminner) at (6, -4.4) {lam};
+\node[nd] (lamstep) at (4, -4.4) {lam};
+\node[nd] (app3) at (3, -5.5) {app};
+\node[nd] (app4) at (4.5, -6.6) {app};
+\node[nd] (lam2) at (3, -7.7) {lam};
+\node[nd] (root) at (1.5, -8.8) {lam};
+\draw[edge] (lammot) -- (nat);
+\draw[edge] (app1) -- (rec);
+\draw[edge] (app1) -- (lammot);
+\draw[edge] (app2) -- (app1);
+\draw[edge] (app2) -- (bv1);
+\draw[edge] (appsucc) -- (succ);
+\draw[edge] (appsucc) -- (bv0);
+\draw[edge] (laminner) -- (nat);
+\draw[edge] (laminner) -- (appsucc);
+\draw[edge] (lamstep) -- (nat);
+\draw[edge] (lamstep) -- (laminner);
+\draw[edge] (app3) -- (app2);
+\draw[edge] (app3) -- (lamstep);
+\draw[edge] (app4) -- (app3);
+\draw[edge] (app4) -- (bv0);
+\draw[edge] (lam2) -- (nat);
+\draw[edge] (lam2) -- (app4);
+\draw[edge] (root) -- (nat);
+\draw[edge] (root) -- (lam2);
+\end{tikzpicture}
+\caption{Nerve store for \texttt{Nat.add} after Shatter: 15 nerves.  Green nodes are shared: \texttt{Nat} appears once (was four tree nodes), \texttt{bvar~0} appears once (was two).}
+\label{fig:natadd-nerves}
+\end{figure}
+
+\subsection{The shared kernel functions}\label{sec:kernel-functions}
+
+Type-checking uses five functions, all parameterized over \texttt{Key} and shared between TreeKernel and NerveKernel:
+
+\begin{itemize}
+\item \texttt{subst}\,: capture-avoiding de~Bruijn substitution.
+\item \texttt{whnf}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/GenericKernel/GenericKernel/Kernel.lean\#L106}: weak head normal form ($\beta$, $\zeta$, $\delta$, and generic $\iota$ reduction via \texttt{RecursorInfo}).
+\item \texttt{infer}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/GenericKernel/GenericKernel/Kernel.lean\#L177}: type inference.
+\item \texttt{defEq}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/GenericKernel/GenericKernel/Kernel.lean\#L218}: definitional equality (reduce both sides to WHNF, compare structurally).
+\item \texttt{check}\leanlink{https://github.com/MathNetwork/cic-kernal/blob/main/GenericKernel/GenericKernel/Kernel.lean\#L236}: verify a declaration and register it.
+\end{itemize}
+
+The \texttt{check} function is the entry point.  For declarations with values, it infers the value's type and checks definitional equality with the declared type:
+
+\begin{lstlisting}[language={},morekeywords={def,match,with,some,none,if,then,else}]
+def check (k : Key) (T : Expr Key) (v : Option (Expr Key))
+    (kind : DeclKind Key) (env : Env Key)
+    : Option (Env Key) :=
+  match v with
+  | none => some (env.addDecl k { kind, type := T, value := none })
+  | some val =>
+      match infer env val with
+      | some inferredT =>
+          if defEq env inferredT T then
+            some (env.addDecl k { kind, type := T, value := some val })
+          else none
+      | none => none
+\end{lstlisting}
+
+None of these functions inspect the structure of \texttt{Key}.  They call \texttt{BEq.beq} on keys (in \texttt{defEq}, to compare two \texttt{const} nodes) and \texttt{Hashable.hash} (in \texttt{Env.getDecl}, for \texttt{HashMap} lookup), but the type-checking logic is identical for \texttt{String} and \texttt{UInt64}.
+
+\subsection{Hash-accelerated definitional equality}\label{sec:exprwithhash}
+
+NerveKernel wraps expressions with a pre-computed hash:
+
+\begin{lstlisting}[language={},morekeywords={structure,where,def,if,then,else}]
+structure ExprWithHash where
+  expr : Expr UInt64
+  hash : UInt64
+
+def defEqWithHash (a b : ExprWithHash) ... : Bool :=
+  if a.hash == b.hash then true
+  else GenericKernel.defEq env a.expr b.expr
+\end{lstlisting}
+
+When hashes match, comparison is O(1).  When they differ, the function falls back to structural comparison.  Lean~4's production kernel uses the same technique via cached hashes on \texttt{Expr} and hash consing (\texttt{ShareCommon.shareCommon'}).  Benchmark data appear in Appendix~\ref{app:codebase}.

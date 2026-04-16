@@ -1,0 +1,234 @@
+% !TEX root = ../main.tex
+\section{Tree Kernel vs Hypergraph Kernel}\label{sec:comparison}
+
+A traditional CIC kernel operates on expression trees; our kernel operates on a content-addressed hypergraph.  Both implement the same CIC typing rules.  We compare them operation by operation.
+
+\paragraph{check.}
+\begin{center}
+\begin{tabular}{@{}p{0.44\textwidth}@{\hspace{0.02\textwidth}}p{0.44\textwidth}@{}}
+\begin{lstlisting}[style=treecode]
+def check (k : Key)
+    (T : Expr Key)
+    (v : Option (Expr Key))
+    (kind : DeclKind Key)
+    (env : Env Key)
+    : Option (Env Key) :=
+  match v with
+  | none =>
+    some (env.addDecl k ...)
+  | some val =>
+    match infer env val with
+    | some inferredT =>
+      if defEq env inferredT T
+      then some (env.addDecl k ...)
+      else none
+    | none => none
+\end{lstlisting}
+&
+\begin{lstlisting}[style=hypercode,escapeinside={(*}{*)}]
+def checkNerve
+    (net : AstroNet) (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ sole data structure}*)
+    (key typeH : UInt64)
+    (valueH : Option UInt64)
+    (kindRecord : String)
+    : Option AstroNet :=
+  match valueH with
+  | none =>
+    some (net.add {...}) (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ nerve, not Decl}*)
+  | some valH => do
+    let (inferredH, net)
+      <- inferNerve net valH
+    let (eq, net) :=
+      defEqNerve net inferredH typeH
+    guard eq
+    some (net.add {...})
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\noindent The traditional kernel takes an expression tree and returns an environment.  The hypergraph kernel takes an \texttt{AstroNet} and returns a larger \texttt{AstroNet}.
+
+\paragraph{subst.}
+\begin{center}
+\begin{tabular}{@{}p{0.44\textwidth}@{\hspace{0.02\textwidth}}p{0.44\textwidth}@{}}
+\begin{lstlisting}[style=treecode]
+def subst (e arg : Expr Key)
+    (depth : Nat) : Expr Key :=
+  match e with
+  | .bvar n =>
+    if n == depth then arg
+    else if n > depth
+      then .bvar (n - 1)
+    else .bvar n
+  | .app f a =>
+    .app (subst f arg depth)
+         (subst a arg depth)
+  | e => e
+\end{lstlisting}
+&
+\begin{lstlisting}[style=hypercode,escapeinside={(*}{*)}]
+def substNerve (net : AstroNet)
+    (bodyH argH : UInt64)
+    (idx fuel : Nat)
+    : (UInt64 * AstroNet) :=
+  match net.get bodyH with (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ query}*)
+  | some n => match n.tag with
+    | .bvar =>
+      if parseBVarIdx n.record == idx
+      then (argH, net) ...
+    | .app =>
+      let (f, net) := substNerve ...
+      let (a, net) := substNerve ...
+      mkNerve net "App()" [f,a] (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ permanent}*)
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\noindent The traditional kernel constructs a temporary \texttt{Expr} node, discarded after use.  The hypergraph kernel's \texttt{mkNerve} creates a permanent nerve.
+
+\paragraph{whnf.}
+\begin{center}
+\begin{tabular}{@{}p{0.44\textwidth}@{\hspace{0.02\textwidth}}p{0.44\textwidth}@{}}
+\begin{lstlisting}[style=treecode]
+def whnf (env : Env Key)
+    (e : Expr Key) : Expr Key :=
+  match e with
+  | .app (.lam _ body) arg =>
+    whnf env (subst body arg)
+  | .app f a =>
+    let f' := whnf env f
+    if f' == f then .app f a
+    else whnf env (.app f' a)
+  | .const k _ =>
+    match env.getDecl k with
+    | some d => match d.value with
+      | some v => whnf env v
+      | none => e
+    | none => e
+  | _ => e
+\end{lstlisting}
+&
+\begin{lstlisting}[style=hypercode,escapeinside={(*}{*)}]
+def whnfNerve (net : AstroNet)
+    (h : UInt64) (fuel : Nat)
+    : (UInt64 * AstroNet) := (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ net grows}*)
+  match net.get h with
+  | some nerve => match nerve.tag with
+    | .app =>
+      match net.get nerve.ref[0]! with
+      | some fn =>
+        if fn.tag == .lam then
+          let (r, net) := substNerve
+            net fn.ref[1]!
+            nerve.ref[1]! ...
+          whnfNerve net r fuel (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ stays}*)
+        else ...
+    | .const =>
+      match getDeclNerve net ... with
+      | some d =>
+        whnfNerve net d.ref[2]! fuel
+    | _ => (h, net)
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\noindent The traditional kernel's \texttt{whnf} returns \texttt{Expr}; intermediates are discarded.  The hypergraph kernel's \texttt{whnfNerve} returns \texttt{(UInt64 $\times$ AstroNet)}; every intermediate becomes a permanent nerve.
+
+\paragraph{infer.}
+\begin{center}
+\begin{tabular}{@{}p{0.44\textwidth}@{\hspace{0.02\textwidth}}p{0.44\textwidth}@{}}
+\begin{lstlisting}[style=treecode]
+def infer (env : Env Key)
+    (e : Expr Key)
+    : Option (Expr Key) :=
+  match e with
+  | .bvar n => listGet? ctx n
+  | .const k _ =>
+    match env.getDecl k with
+    | some d => some d.type
+    | none => none
+  | .app f a =>
+    match infer env f with
+    | some fTy =>
+      match whnf env fTy with
+      | .forallE _ body =>
+        some (whnf env
+              (subst body a))
+      | _ => none
+    | none => none
+  | .lam ty body =>
+    match infer env body with
+    | some bTy =>
+      some (.forallE ty bTy)
+    | none => none
+\end{lstlisting}
+&
+\begin{lstlisting}[style=hypercode,escapeinside={(*}{*)}]
+def inferNerve (net : AstroNet)
+    (h : UInt64)
+    (ctx : List UInt64) (fuel : Nat)
+    : Option (UInt64 * AstroNet) :=
+  match net.get h with
+  | some n => match n.tag with
+    | .bvar =>
+      (listGet? ctx ...).map (., net)
+    | .const =>
+      match getDeclNerve net ... with
+      | some d =>
+        some (instNerve
+          net d.ref[1]! ...)
+    | .app => do
+      let (ftH, net) <-
+        inferNerve net n.ref[0]! ...
+      let (ftH', net) :=
+        whnfNerve net ftH fuel (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ stays}*)
+      let ft <- net.get ftH'
+      guard (ft.tag == .forallE)
+      let (r, net) := substNerve (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ stays}*)
+        net ft.ref[1]! n.ref[1]! ...
+      some (whnfNerve net r fuel)
+    | .lam => do
+      let (btyH, net) <-
+        inferNerve net n.ref[1]! ...
+      some (mkNerve net (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ permanent}*)
+        "ForallE(...)" [...])
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\noindent The traditional kernel's \texttt{infer} returns \texttt{Option Expr}; the inferred type is temporary.  The hypergraph kernel's \texttt{inferNerve} returns \texttt{Option (UInt64 $\times$ AstroNet)}; all intermediates are permanent nerves.
+
+\paragraph{defEq.}
+\begin{center}
+\begin{tabular}{@{}p{0.44\textwidth}@{\hspace{0.02\textwidth}}p{0.44\textwidth}@{}}
+\begin{lstlisting}[style=treecode]
+def defEq (env : Env Key)
+    (a b : Expr Key) : Bool :=
+  let a' := whnf env a
+  let b' := whnf env b
+  match a', b' with
+  | .sort u1, .sort u2 =>
+    u1 == u2
+  | .app f1 a1, .app f2 a2 =>
+    defEq env f1 f2 &&
+    defEq env a1 a2
+  | ...
+  | _, _ => false
+\end{lstlisting}
+&
+\begin{lstlisting}[style=hypercode,escapeinside={(*}{*)}]
+def defEqNerve (net : AstroNet)
+    (h1 h2 : UInt64) (fuel : Nat)
+    : (Bool * AstroNet) :=
+  if h1 == h2 then (true, net) (*\rlap{\color{red!70!black}\scriptsize$\leftarrow$ O(1)}*)
+  else
+    let (h1', net) :=
+      whnfNerve net h1 fuel
+    let (h2', net) :=
+      whnfNerve net h2 fuel
+    if h1' == h2' then (true, net)
+    else
+      -- structural comparison
+      -- on nerve tags
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\noindent The traditional kernel returns \texttt{Bool}; \texttt{whnf} intermediates are discarded.  The hypergraph kernel returns \texttt{(Bool $\times$ AstroNet)}; intermediates remain.  Hash-equal nerves compare in O(1).
+
+We test both kernels on 15 declarations from \texttt{Nat} through \texttt{Nat.add\_comm}, covering constructors, recursors, and inductive proofs including commutativity of addition.  The traditional kernel processes these declarations as 847 tree nodes across 15 independent expression trees.  The hypergraph kernel produces 612 nerves in a single shared store.  \texttt{Const(Nat)} appears 97 times across the independent trees but once in the hypergraph, where it is referenced by 104 other nerves.  Both kernels accept all 15 declarations (Appendix~\ref{app:verification}).

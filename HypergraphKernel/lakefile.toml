@@ -1,0 +1,14 @@
+name = "HypergraphKernel"
+version = "0.1.0"
+defaultTargets = ["astrocore"]
+
+[[require]]
+name = "GenericKernel"
+path = "../GenericKernel"
+
+[[lean_lib]]
+name = "HypergraphKernel"
+
+[[lean_exe]]
+name = "astrocore"
+root = "Main"

@@ -1,0 +1,9 @@
+name = "GenericKernel"
+version = "0.1.0"
+
+[[require]]
+name = "Std"
+scope = "leanprover"
+
+[[lean_lib]]
+name = "GenericKernel"

@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+body {
+  background: #09090b;
+  color: #d4d4d8;
+  font-family: 'Geist Mono', 'JetBrains Mono', monospace;
+}
+
+::selection {
+  background: rgba(74, 212, 212, 0.3);
+}
